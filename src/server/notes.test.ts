@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createApp } from "./app";
-import { openDatabase } from "./db";
+import { migrate, openDatabase } from "./db";
 
 // Each test gets its own App on a fresh in-memory Database, migrated as at start.
 function fresh() {
-  return createApp({ client: "./dist/client", db: openDatabase(":memory:") });
+  return createApp({ client: "./dist/client", db: migrate(openDatabase(":memory:")) });
 }
 
 // What the Basemodo gate sends for a signed-in visitor.
@@ -74,7 +74,11 @@ describe("notes", () => {
 describe("without a Basemodo gate in front (local development)", () => {
   test("the stand-in is the visitor", async () => {
     const standIn = { id: "dev:me@example.com", email: "me@example.com" };
-    const app = createApp({ client: "./dist/client", db: openDatabase(":memory:"), standIn });
+    const app = createApp({
+      client: "./dist/client",
+      db: migrate(openDatabase(":memory:")),
+      standIn,
+    });
     const created = await post(app, {}, { text: "Local" });
     expect(created.status).toBe(201);
     const list = await app.request("/api/notes");
