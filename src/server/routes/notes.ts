@@ -4,16 +4,16 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { Db } from "../db";
 import { notes } from "../db/schema";
-import { type Identity, type Person, signedIn } from "../identity";
+import { type Identity, signedIn } from "../identity";
 import { invalid } from "../invalid";
 
 const newNote = z.object({ text: z.string().trim().min(1, "Write something first").max(2000) });
 const noteId = z.object({ id: z.coerce.number().int().positive() });
 
 /** A signed-in visitor's own notes: list, add, delete. */
-export function notesRoutes(db: Db, standIn?: Person) {
+export function notesRoutes(db: Db) {
   return new Hono<Identity>()
-    .use(signedIn(standIn))
+    .use(signedIn)
     .get("/", (c) => {
       const mine = db
         .select()

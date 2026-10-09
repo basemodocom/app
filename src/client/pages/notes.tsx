@@ -9,8 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type Note, ok } from "@/lib/api";
 
-// The example: each visitor's own notes. Delete this page, its route in app.tsx,
-// src/server/routes/notes.ts and the notes table to start your own App.
+// The example: each visitor's own notes. AGENTS.md lists what to delete with it.
 
 export function NotesPage() {
   const queryClient = useQueryClient();

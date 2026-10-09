@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { brotliCompressSync } from "node:zlib";
 import { createApp } from "./app";
-import { openDatabase } from "./db";
+import { migrate, openDatabase } from "./db";
 
 // A stand-in for dist/client, so the tests need no build.
 const client = mkdtempSync(join(tmpdir(), "client-"));
@@ -13,7 +13,7 @@ writeFileSync(join(client, "index.html"), page);
 writeFileSync(join(client, "index.html.br"), brotliCompressSync(page));
 afterAll(() => rmSync(client, { recursive: true }));
 
-const app = createApp({ client, db: openDatabase(":memory:") });
+const app = createApp({ client, db: migrate(openDatabase(":memory:")) });
 
 describe("the server", () => {
   test("answers the API", async () => {
@@ -32,6 +32,11 @@ describe("the server", () => {
     const res = await app.request("/notes/42");
     expect(res.status).toBe(200);
     expect(await res.text()).toBe(page);
+  });
+
+  test("answers a missing file with a 404, not the client's page", async () => {
+    const res = await app.request("/assets/index-old.js");
+    expect(res.status).toBe(404);
   });
 
   test("sends the precompressed page when the browser accepts it", async () => {
