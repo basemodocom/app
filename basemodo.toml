@@ -1,0 +1,8 @@
+# Basemodo needs nothing here to deploy this App: it detects Hono on Bun.
+# Uncomment to run a job on a schedule. A Cron run wakes the App if it sleeps,
+# shares its Database, and works on every Plan (a [[worker]] needs Pro).
+#
+# [[cron]]
+# name = "tidy"
+# schedule = "0 3 * * *"
+# command = "bun src/jobs/tidy.ts"

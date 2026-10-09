@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { brotliCompressSync } from "node:zlib";
 import { createApp } from "./app";
+import { openDatabase } from "./db";
 
 // A stand-in for dist/client, so the tests need no build.
 const client = mkdtempSync(join(tmpdir(), "client-"));
@@ -12,7 +13,7 @@ writeFileSync(join(client, "index.html"), page);
 writeFileSync(join(client, "index.html.br"), brotliCompressSync(page));
 afterAll(() => rmSync(client, { recursive: true }));
 
-const app = createApp({ client });
+const app = createApp({ client, db: openDatabase(":memory:") });
 
 describe("the server", () => {
   test("answers the API", async () => {

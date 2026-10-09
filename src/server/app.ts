@@ -1,25 +1,37 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
+import type { Db } from "./db";
+import type { Person } from "./identity";
+import { notesRoutes } from "./routes/notes";
 
-// The API. Every route lives under /api; its type (AppType) is what the client
-// imports to call it with types.
-const api = new Hono().get("/health", (c) => c.json({ ok: true }));
+type Options = {
+  /** The folder `bun run build` writes the client to. */
+  client: string;
+  db: Db;
+  /** Who to be when no Basemodo gate is in front: local development only. */
+  standIn?: Person;
+};
 
-export type AppType = typeof api;
+/** The API: every route under /api. Add a route file and mount it here. */
+function createApi({ db, standIn }: Options) {
+  return new Hono()
+    .get("/health", (c) => c.json({ ok: true }))
+    .route("/notes", notesRoutes(db, standIn));
+}
 
-/**
- * The whole server: the API under /api, and the built client (`client`, the
- * folder `bun run build` writes) for every other path.
- */
-export function createApp({ client }: { client: string }) {
+/** What the client imports to call the API with types (src/client/lib/api.ts). */
+export type AppType = ReturnType<typeof createApi>;
+
+/** The whole server: the API under /api, and the built client for every other path. */
+export function createApp(options: Options) {
   return (
     new Hono()
-      .route("/api", api)
+      .route("/api", createApi(options))
       // An /api path no route answered is a JSON 404, never the client's page.
       .all("/api/*", (c) => c.json({ error: "not_found" }, 404))
       // The built client, sent precompressed (.br, .gz) when the browser accepts it.
-      .use("*", serveStatic({ root: client, precompressed: true }))
+      .use("*", serveStatic({ root: options.client, precompressed: true }))
       // Any other path is a client route: the client's index.html answers it.
-      .get("*", serveStatic({ root: client, path: "index.html", precompressed: true }))
+      .get("*", serveStatic({ root: options.client, path: "index.html", precompressed: true }))
   );
 }
