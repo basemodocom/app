@@ -3,6 +3,11 @@ name: CI
 on:
   push:
   pull_request:
+  # Weekly, against the newest releases the version ranges allow, so a release
+  # that breaks the Template shows up here before an agent's `bun create` meets it.
+  schedule:
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
 
 jobs:
   check:
@@ -11,5 +16,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run build
+
+  latest:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun update
       - run: bun run check
       - run: bun run build
