@@ -74,6 +74,28 @@ describe("notes", () => {
     expect(await res.json()).toMatchObject({ error: "invalid", message: expect.any(String) });
   });
 
+  test("an oversized body is refused with a readable 413 before it is read", async () => {
+    const body = JSON.stringify({ text: "x".repeat(1024 * 1024) });
+    const res = await fresh().request("/api/notes", {
+      method: "POST",
+      headers: { ...ana, "content-type": "application/json", "content-length": `${body.length}` },
+      body,
+    });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toMatchObject({ error: "too_large", message: expect.any(String) });
+  });
+
+  test("an oversized body sent in chunks, with no length, is refused too", async () => {
+    // No content-length, as with chunked transfer: the limit counts the bytes as they arrive.
+    const res = await post(fresh(), ana, { text: "x".repeat(1024 * 1024) });
+    expect(res.status).toBe(413);
+  });
+
+  test("the longest note the route takes still fits under the body limit", async () => {
+    const res = await post(fresh(), ana, { text: "😀".repeat(1000) });
+    expect(res.status).toBe(201);
+  });
+
   test("a visitor Basemodo did not sign in (a Public App) is refused", async () => {
     const app = fresh();
     const res = await app.request("/api/notes");

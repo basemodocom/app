@@ -39,10 +39,11 @@ Locally there is no Basemodo in front: set `DEV_USER_EMAIL` and the server treat
 
 ## Hardening
 
-`createApp` wraps every response in two Hono middlewares, so routes and client both get them:
+`createApp` wraps every response in three Hono middlewares, so routes and client both get them:
 
 - `secureHeaders({ xFrameOptions: "DENY" })` — no framing (clickjacking), no MIME sniffing, HSTS, a bare `Referrer-Policy`. To add a Content-Security-Policy, first move the inline theme script in `src/client/index.html` to its own file (a strict CSP blocks inline scripts), then pass `contentSecurityPolicy` to `secureHeaders`.
 - `csrf()` — a state-changing request that is neither same-origin nor a JSON body is turned away, so a cross-site `<form>` cannot act as the visitor. The client's own `fetch` calls are same-origin and pass; a route that must take a cross-origin write (a webhook) mounts before these middlewares or sets its own `origin`.
+- `bodyLimit` — a request body over 64 KB gets a 413 before any route reads it, so one visitor cannot fill the Machine's memory. A route that takes more (a file upload) is left out of it with `except` from `hono/combine` and sets its own `bodyLimit`, since the shared one runs first.
 
 Two more, per feature:
 
