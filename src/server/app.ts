@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { serveStatic } from "hono/bun";
 import { csrf } from "hono/csrf";
 import { secureHeaders } from "hono/secure-headers";
@@ -13,6 +14,14 @@ type Options = {
   /** Who to be when no Basemodo is in front: local development only. */
   standIn?: Person;
 };
+
+/**
+ * The largest request body the App reads: 64 KB. The API takes JSON from forms,
+ * and the largest body it accepts, a 2000-character note, is at most 12 KB as
+ * JSON even with every character escaped; 64 KB leaves room for bigger forms,
+ * while many such requests at once stay small next to a 256 MB Machine.
+ */
+const maxBody = 64 * 1024;
 
 /** The API: every route under /api. Add a route file and mount it here. */
 function createApi(db: Db) {
@@ -36,6 +45,24 @@ export function createApp({ client, db, standIn }: Options) {
       // same-origin nor JSON: a cross-site <form> or navigation to /api is turned
       // away before a route runs. The client's own calls are same-origin and pass.
       .use("*", csrf())
+      // bodyLimit refuses a body over maxBody with a 413 before anything reads it:
+      // Basemodo lets a signed-in visitor send up to 100 MB, which parsed whole
+      // would fill the Machine's memory. A route that takes more (a file upload)
+      // is left out with `except` from hono/combine and sets its own bodyLimit.
+      .use(
+        "*",
+        bodyLimit({
+          maxSize: maxBody,
+          onError: (c) =>
+            c.json(
+              {
+                error: "too_large",
+                message: `The request body is larger than ${maxBody / 1024} KB`,
+              },
+              413,
+            ),
+        }),
+      )
       .use("/api/*", identify(standIn))
       .route("/api", createApi(db))
       // An /api path no route answered is a JSON 404, never the client's page.
