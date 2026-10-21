@@ -12,6 +12,8 @@ type Options = {
   db: Db;
   /** Who to be when no Basemodo is in front: local development only. */
   standIn?: Person;
+  /** The App's `BASEMODO_JWT_PUBLIC_KEY` (PEM). Set it to verify `X-Basemodo-Jwt`. */
+  jwtPublicKey?: string;
 };
 
 /** The API: every route under /api. Add a route file and mount it here. */
@@ -23,7 +25,7 @@ function createApi(db: Db) {
 export type AppType = ReturnType<typeof createApi>;
 
 /** The whole server: the API under /api, and the built client for every other path. */
-export function createApp({ client, db, standIn }: Options) {
+export function createApp({ client, db, standIn, jwtPublicKey }: Options) {
   return (
     new Hono()
       // Hardening on every response. secureHeaders stops the page being framed
@@ -36,7 +38,7 @@ export function createApp({ client, db, standIn }: Options) {
       // same-origin nor JSON: a cross-site <form> or navigation to /api is turned
       // away before a route runs. The client's own calls are same-origin and pass.
       .use("*", csrf())
-      .use("/api/*", identify(standIn))
+      .use("/api/*", identify(standIn, jwtPublicKey))
       .route("/api", createApi(db))
       // An /api path no route answered is a JSON 404, never the client's page.
       .all("/api/*", (c) => c.json({ error: "not_found" }, 404))
