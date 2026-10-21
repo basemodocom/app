@@ -16,6 +16,8 @@ const app = createApp({
   client: fileURLToPath(new URL("../../dist/client", import.meta.url)),
   db: migrate(openDatabase(databasePath())),
   standIn,
+  // Set on Basemodo to verify the signed identity instead of trusting the headers.
+  jwtPublicKey: process.env.BASEMODO_JWT_PUBLIC_KEY,
 });
 
 // The Port Contract: listen on $PORT, on every interface. Basemodo sets PORT;

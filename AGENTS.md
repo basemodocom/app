@@ -33,7 +33,7 @@ Write the UI in the Person's language.
 
 Basemodo signs visitors in before they reach the App and sends `X-Basemodo-Id`, `X-Basemodo-Email` and `X-Basemodo-Role` with every request, removing any a visitor sends, so the App trusts them as they are and leaves login to Basemodo. `identify` puts the visitor in `c.var.person`; keep records under `person.id`, which survives an email change. Verify `X-Basemodo-Jwt` with `BASEMODO_JWT_PUBLIC_KEY` only when passing the identity on to another service.
 
-That trust is load-bearing: the whole identity rests on Basemodo being the only way in and stripping these headers, so a request that reached the App's port directly could set `X-Basemodo-Id` to anyone. Basemodo is that single door in production. Where a leak would be grave, make it defense in depth: verify `X-Basemodo-Jwt` with `BASEMODO_JWT_PUBLIC_KEY` inside `identify` and trust the headers only when it checks out, so a forged header alone is not enough.
+That trust is load-bearing: the whole identity rests on Basemodo being the only way in and stripping these headers, so a request that reached the App's port directly could set `X-Basemodo-Id` to anyone. Basemodo is that single door in production. Where a leak would be grave, make it defense in depth: set the App's `BASEMODO_JWT_PUBLIC_KEY` (PEM) and `identify` verifies the signed `X-Basemodo-Jwt` — a short-lived EdDSA token the gate signs with the App's own key — and trusts the plain headers no longer, so a forged header alone is not enough. The template reads that env var in `index.ts` and passes it to `createApp`; unset, nothing changes.
 
 Locally there is no Basemodo in front: set `DEV_USER_EMAIL` and the server treats every request as that person (only off Basemodo, outside production).
 
@@ -43,6 +43,11 @@ Locally there is no Basemodo in front: set `DEV_USER_EMAIL` and the server treat
 
 - `secureHeaders({ xFrameOptions: "DENY" })` — no framing (clickjacking), no MIME sniffing, HSTS, a bare `Referrer-Policy`. To add a Content-Security-Policy, first move the inline theme script in `src/client/index.html` to its own file (a strict CSP blocks inline scripts), then pass `contentSecurityPolicy` to `secureHeaders`.
 - `csrf()` — a state-changing request that is neither same-origin nor a JSON body is turned away, so a cross-site `<form>` cannot act as the visitor. The client's own `fetch` calls are same-origin and pass; a route that must take a cross-origin write (a webhook) mounts before these middlewares or sets its own `origin`.
+
+Two more, per feature:
+
+- **Signed identity** — set `BASEMODO_JWT_PUBLIC_KEY` and `identify` trusts only the signed `X-Basemodo-Jwt` (see *Who is visiting*). Do this for any App holding money, PII or one tenant's data another must not read.
+- **Rate limit** — `rateLimit` (`src/server/rate-limit.ts`) refuses a visitor more than `PER_MINUTE` calls a minute with a 429; the notes router counts per `person.id`. Tune the constant to the real feature. It counts in memory, which on Basemodo's single Process is exact while the App runs and resets when it sleeps; limit at Basemodo's edge for anything stronger.
 
 Validate every input at the edge with `zValidator` as the routes do, and scope each query by `person.id` so one visitor never reads or writes another's rows.
 

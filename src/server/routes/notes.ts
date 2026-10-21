@@ -6,14 +6,20 @@ import type { Db } from "../db";
 import { notes } from "../db/schema";
 import { type Identity, signedIn } from "../identity";
 import { invalid } from "../invalid";
+import { rateLimit } from "../rate-limit";
 
 const newNote = z.object({ text: z.string().trim().min(1, "Write something first").max(2000) });
 const noteId = z.object({ id: z.coerce.number().int().positive() });
+
+// The most calls one visitor may make a minute, counted per person. Tune it to
+// the real feature; it bounds both abuse and how fast the Database can grow.
+const PER_MINUTE = 60;
 
 /** A signed-in visitor's own notes: list, add, delete. */
 export function notesRoutes(db: Db) {
   return new Hono<Identity>()
     .use(signedIn)
+    .use(rateLimit<Identity>({ limit: PER_MINUTE, windowMs: 60_000, key: (c) => c.var.person.id }))
     .get("/", (c) => {
       const mine = db
         .select()
