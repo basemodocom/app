@@ -24,7 +24,11 @@ export function identify(standIn?: Person): MiddlewareHandler<{ Variables: { per
   return async (c, next) => {
     const id = c.req.header("x-basemodo-id");
     const email = c.req.header("x-basemodo-email");
-    const role = c.req.header("x-basemodo-role") as Person["role"];
+    // Keep only a role we know: an unexpected header value becomes no role, so a
+    // `person.role === "owner"` check downstream can never be fooled by a stray string.
+    const raw = c.req.header("x-basemodo-role");
+    const role: Person["role"] =
+      raw === "owner" || raw === "member" || raw === "editor" ? raw : undefined;
     const person = id && email ? { id, email, role } : standIn;
     if (person) c.set("person", person);
     await next();

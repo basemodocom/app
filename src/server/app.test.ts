@@ -44,4 +44,14 @@ describe("the server", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-encoding")).toBe("br");
   });
+
+  test("sends hardening headers on both the API and the page", async () => {
+    for (const path of ["/api/health", "/"]) {
+      const res = await app.request(path);
+      // No framing (clickjacking), no MIME sniffing, and HSTS.
+      expect(res.headers.get("x-frame-options")).toBe("DENY");
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(res.headers.get("strict-transport-security")).toContain("max-age=");
+    }
+  });
 });

@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
+import { csrf } from "hono/csrf";
+import { secureHeaders } from "hono/secure-headers";
 import type { Db } from "./db";
 import { identify, type Person } from "./identity";
 import { notesRoutes } from "./routes/notes";
@@ -24,6 +26,16 @@ export type AppType = ReturnType<typeof createApi>;
 export function createApp({ client, db, standIn }: Options) {
   return (
     new Hono()
+      // Hardening on every response. secureHeaders stops the page being framed
+      // (clickjacking) and MIME-sniffed, and sets HSTS and a bare Referrer-Policy;
+      // Basemodo terminates TLS so HSTS is honored there, and http://localhost
+      // ignores it. To add a Content-Security-Policy, move the inline theme script
+      // in src/client/index.html to its own file first, then pass contentSecurityPolicy.
+      .use("*", secureHeaders({ xFrameOptions: "DENY" }))
+      // csrf refuses a state-changing request (POST/DELETE/…) that is neither
+      // same-origin nor JSON: a cross-site <form> or navigation to /api is turned
+      // away before a route runs. The client's own calls are same-origin and pass.
+      .use("*", csrf())
       .use("/api/*", identify(standIn))
       .route("/api", createApi(db))
       // An /api path no route answered is a JSON 404, never the client's page.
