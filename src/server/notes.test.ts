@@ -19,6 +19,16 @@ function post(app: ReturnType<typeof fresh>, who: Record<string, string>, body: 
   });
 }
 
+// A real browser sends Sec-Fetch-Site on every request; a same-origin call from
+// the client carries "same-origin", which the CSRF guard requires to let a
+// DELETE (a request with no JSON body) through.
+function del(app: ReturnType<typeof fresh>, who: Record<string, string>, id: number) {
+  return app.request(`/api/notes/${id}`, {
+    method: "DELETE",
+    headers: { ...who, "sec-fetch-site": "same-origin" },
+  });
+}
+
 describe("notes", () => {
   test("a visitor adds a note and sees it in their list", async () => {
     const app = fresh();
@@ -42,7 +52,7 @@ describe("notes", () => {
   test("a visitor deletes their own note", async () => {
     const app = fresh();
     const { id } = await (await post(app, ana, { text: "Gone soon" })).json();
-    const res = await app.request(`/api/notes/${id}`, { method: "DELETE", headers: ana });
+    const res = await del(app, ana, id);
     expect(res.status).toBe(204);
     const list = await app.request("/api/notes", { headers: ana });
     expect(await list.json()).toEqual([]);
@@ -51,7 +61,7 @@ describe("notes", () => {
   test("a visitor cannot delete another visitor's note", async () => {
     const app = fresh();
     const { id } = await (await post(app, ana, { text: "Mine" })).json();
-    const res = await app.request(`/api/notes/${id}`, { method: "DELETE", headers: ben });
+    const res = await del(app, ben, id);
     expect(res.status).toBe(404);
     const list = await app.request("/api/notes", { headers: ana });
     expect(await list.json()).toHaveLength(1);
@@ -68,6 +78,20 @@ describe("notes", () => {
     const app = fresh();
     const res = await app.request("/api/notes");
     expect(res.status).toBe(401);
+  });
+
+  test("a cross-site state-changing request is refused (CSRF)", async () => {
+    const app = fresh();
+    const { id } = await (await post(app, ana, { text: "Protected" })).json();
+    // A request forged from another site: the browser reports "cross-site", which
+    // the CSRF guard turns away before the route runs. The note survives.
+    const res = await app.request(`/api/notes/${id}`, {
+      method: "DELETE",
+      headers: { ...ana, "sec-fetch-site": "cross-site", origin: "https://evil.example" },
+    });
+    expect(res.status).toBe(403);
+    const list = await app.request("/api/notes", { headers: ana });
+    expect(await list.json()).toHaveLength(1);
   });
 });
 
