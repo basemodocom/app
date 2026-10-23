@@ -5,7 +5,7 @@ type Options<E extends Env> = {
   limit: number;
   /** The window's length, in milliseconds. */
   windowMs: number;
-  /** What to count requests by — usually the visitor's id. */
+  /** What to count requests by: `person.id` once a Person is known, `byAddress` before. */
   key: (c: Context<E>) => string;
   /** The clock; injected in tests, `Date.now` otherwise. */
   now?: () => number;
@@ -16,8 +16,8 @@ type Options<E extends Env> = {
  * `Retry-After`. The count lives in this Process's memory: on Basemodo the App
  * is a single Process, so the count is exact while it runs and resets when the
  * App sleeps (after it has been idle, which is when no limit is needed) or
- * redeploys. To limit across sleeps, or by raw IP before a visitor is known,
- * limit at Basemodo's edge instead.
+ * redeploys. For a limit that must outlast that (form entries a day), count in
+ * the Database instead.
  */
 export function rateLimit<E extends Env>({
   limit,
@@ -47,4 +47,32 @@ export function rateLimit<E extends Env>({
     }
     await next();
   };
+}
+
+/**
+ * A `key` for a limit before a Person is known (a Public App's waitlist or contact
+ * form): the address the request came from, which Basemodo puts in
+ * `X-Forwarded-For` after removing any a visitor sent, so no visitor picks their
+ * own count. An IPv6 visitor counts by their /64, which one visitor commonly holds
+ * whole, as Basemodo counts a client. A Caller (another of the Owner's Apps calling
+ * this one) comes with the calling App's internal address, so all its calls count
+ * together; tell Callers apart by `X-Basemodo-Caller`, since that address may
+ * change with each Deploy. Locally, with no Basemodo in front, there is no address
+ * and every request shares one count.
+ *
+ *   .use(rateLimit({ limit: 10, windowMs: 60_000, key: byAddress }))
+ *
+ * Once a Person is known, key on `person.id` instead, as the notes router does:
+ * people behind one address (an office, a phone carrier) then don't share a
+ * count, and one person doesn't get a fresh one on each network.
+ */
+export function byAddress(c: Context): string {
+  const address = c.req.header("x-forwarded-for") ?? "";
+  if (!address.includes(":")) return address;
+  // IPv6: its first four groups of eight, `::` standing for the zero groups left out.
+  const [head = "", tail = ""] = address.split("::");
+  const groups = (part: string) => (part ? part.split(":") : []);
+  const zeros = Math.max(0, 8 - groups(head).length - groups(tail).length);
+  const all = [...groups(head), ...Array.from({ length: zeros }, () => "0"), ...groups(tail)];
+  return `${all.slice(0, 4).join(":")}::/64`;
 }
