@@ -1,9 +1,8 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate as applyMigrations } from "drizzle-orm/bun-sqlite/migrator";
 import * as schema from "./schema";
 
 export type Db = ReturnType<typeof openDatabase>;
@@ -25,14 +24,59 @@ export function openDatabase(path: string) {
   return drizzle({ client: sqlite, schema });
 }
 
-/**
- * Brings the Database up to date with the migrations in drizzle/. The web
- * Process does this when it starts (src/server/index.ts), so every Deploy
- * migrates once; Cron runs and workers only open the Database.
- */
-export function migrate(db: Db) {
-  applyMigrations(db, {
-    migrationsFolder: fileURLToPath(new URL("../../../drizzle", import.meta.url)),
+const MIGRATIONS = fileURLToPath(new URL("../../../migrations", import.meta.url));
+
+/** The migrations in `folder`, in order; hidden files (.DS_Store) are left out. */
+function migrationFiles(folder: string) {
+  // Git keeps no empty folder, so an App whose migrations were all removed has none.
+  if (!existsSync(folder)) return [];
+  const files = readdirSync(folder)
+    .filter((file) => !file.startsWith("."))
+    .sort();
+  files.forEach((file, i) => {
+    if (!/^\d{4}_[\w-]+\.sql$/.test(file)) {
+      throw new Error(`migrations/${file} is not named NNNN_name.sql, as 0002_add_tags.sql is`);
+    }
+    const before = files[i - 1];
+    if (before?.slice(0, 4) === file.slice(0, 4)) {
+      throw new Error(`migrations/${before} and ${file} share the number ${file.slice(0, 4)}`);
+    }
   });
+  return files;
+}
+
+/**
+ * Brings the Database up to date with the SQL files in migrations/: applies
+ * each one not applied yet, in the order of its number, in a transaction of its
+ * own, and records it in _migrations. A migration that fails is rolled back
+ * whole and stops here with an error naming it, so the web Process, which does
+ * this when it starts (src/server/index.ts), does not start on a half-changed
+ * Database. Cron runs and workers only open the Database.
+ */
+export function migrate(db: Db, folder = MIGRATIONS) {
+  const sqlite = db.$client;
+  sqlite.run(`create table if not exists _migrations (
+    name text primary key,
+    applied_at integer not null default (unixepoch())
+  )`);
+  const applied = sqlite.query("select 1 from _migrations where name = ?");
+  const record = sqlite.query("insert into _migrations (name) values (?)");
+  const apply = sqlite.transaction((file: string) => {
+    if (applied.get(file)) return;
+    sqlite.run(readFileSync(join(folder, file), "utf8"));
+    record.run(file);
+  });
+  for (const file of migrationFiles(folder)) {
+    try {
+      // IMMEDIATE takes the write lock before reading what was applied, so a
+      // migration another process applied meanwhile is seen and skipped.
+      apply.immediate(file);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`Migration ${file} failed, so none of it was applied: ${reason}`, {
+        cause: error,
+      });
+    }
+  }
   return db;
 }
