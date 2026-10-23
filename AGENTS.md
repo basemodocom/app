@@ -1,12 +1,12 @@
 # App on Basemodo
 
-This App runs on [Basemodo](https://basemodo.com): one Machine, one web Process, SQLite on a persistent volume, and Basemodo in front signing visitors in. It is TypeScript end to end, run by Bun: Hono serves `/api/*` and the React client built by Vite. The notes feature is an example of every piece working together; replace it with what the Person asked for.
+This App runs on [Basemodo](https://basemodo.com): one Machine, one web Process, SQLite on a persistent volume, and Basemodo in front signing visitors in. It is TypeScript end to end, run by Bun: Hono serves `/api/*` and the React client built by Vite. The notes feature is an example of every piece working together; replace it with what the Person asked for. Read this file whole before you write anything in the App.
 
 ## Layout
 
 - `src/server/` is the web Process. `app.ts` mounts the API (`createApi`) and serves the built client for every other path; `index.ts` starts it.
 - `src/server/routes/` holds one file per API resource, each a Hono router mounted in `createApi`.
-- `src/server/db/schema.ts` is every table; `drizzle/` holds the migrations generated from it.
+- `migrations/` holds the SQL that makes the Database's tables, one file per change (`0001_notes.sql`); `src/server/db/schema.ts` describes the same tables for Drizzle's queries.
 - `src/server/identity.ts` says who is visiting.
 - `src/client/` is the React app: `app.tsx` lists the pages as routes, `pages/` holds them, `components/ui/` holds the shadcn/ui components, `lib/api.ts` is the typed API client.
 - `src/jobs/` holds the scripts Cron runs start.
@@ -14,12 +14,14 @@ This App runs on [Basemodo](https://basemodo.com): one Machine, one web Process,
 
 ## Changing the App
 
-- **A table or column**: edit `schema.ts`, run `bun run db:generate`, commit the new file in `drizzle/`. The web Process applies pending migrations when it starts, so a Deploy brings the Database up to date by itself.
+- **A table or column**: write the SQL in a new migration, `migrations/` with the next number (`0002_add_tags.sql`), then change `schema.ts` to match. The web Process applies each pending migration when it starts, in the order of its number and in a transaction of its own, and records it so it runs once: a Deploy brings the Database up to date by itself, and a migration that fails leaves the Database as it was, and the App does not start, so the Deploy fails. So a migration, once deployed, stays as it is; what it did changes in the next one. Write only its statements: it already runs in a transaction, so one with a `BEGIN` or `COMMIT` of its own is refused.
+  - A migration only adds, by default: a table, an index, a column (nullable or with a `DEFAULT`, as SQLite requires of an added column). The Database then still fits the code of earlier Deploys, so going back to one keeps working.
+  - To drop or rename something the Person may use (a table, a column, what it holds), first explain to the Person in plain words what goes and what they lose, and ask. Once they say yes, do it in two Deploys: one whose code stops using it, then one whose migration drops it.
 - **An API route**: add it to a router in `src/server/routes/` (a new file for a new resource, mounted in `createApi` with `.route()`); put `signedIn` on routers that need a person, and validate input with `zValidator(..., invalid)` so bad input gets a readable 400. Chain the routes on the router (`new Hono().get(...).post(...)`): the chain is what carries their types to the client.
 - **A page**: add a component in `src/client/pages/` and a `<Route>` in `app.tsx`. Fetch with TanStack Query through `api` from `lib/api.ts`; a route whose path or shape changes on the server then fails `tsc` in the client.
 - **A component**: `bunx shadcn@latest add <name>` puts it in `components/ui/`. Compose screens from these.
-- **An App with no pages** (an API, webhooks, scheduled jobs): delete `src/client/`, `vite.config.ts` and the `build` script; the web Process still answers on `$PORT`, which Basemodo requires.
-- **Removing the example**: delete `pages/notes.tsx` and its route, `routes/notes.ts` and its mount in `createApi`, `notes.test.ts`, the `Note` type in `lib/api.ts`, the `notes` table, `src/jobs/tidy.ts` and the `[[cron]]` comment naming it; point `db/db.test.ts` at your own table; then run `bun run db:generate`.
+- **An App with no pages** (an API, webhooks, scheduled jobs): delete `src/client/`, `vite.config.ts` and `vite build` from the `build` script; the web Process still answers on `$PORT`, which Basemodo requires.
+- **Removing the example**: delete `pages/notes.tsx` and its route, `routes/notes.ts` and its mount in `createApi`, `notes.test.ts`, the `Note` type in `lib/api.ts`, the `notes` table in `schema.ts`, `src/jobs/tidy.ts` and the `[[cron]]` comment naming it; point `db/db.test.ts` at your own table. Before the App's first Deploy, delete `migrations/0001_notes.sql` too; once deployed, the table is in the Person's Database, so keep that file and drop the table as dropping goes above.
 
 Write the UI in the Person's language.
 
@@ -76,4 +78,4 @@ Validate every input at the edge with `zValidator` as the routes do, and scope e
 
 ## Before deploying
 
-Run `bun run check` and fix what it reports; add a test in `src/server/` for each API route you add, calling `createApp(...).request()` on an in-memory Database as `notes.test.ts` does. Then deploy the folder with `basemodo deploy` (or the local MCP's `deploy`), or, through the Remote MCP, push it to a repository and deploy that with `repository`; give the Person the App's URL. A repository is optional: recommend one (GitHub by default) for the code's history.
+Run `bun run check` and fix what it reports. `bun run build`, which Basemodo runs for every Deploy, typechecks and runs the tests before it builds the client, so a type error or a failing test fails the Deploy. The tests run on an in-memory Database with every migration applied, so a broken migration fails it too. Add a test in `src/server/` for each API route you add, calling `createApp(...).request()` on an in-memory Database as `notes.test.ts` does. Then deploy the folder with `basemodo deploy` (or the local MCP's `deploy`), or, through the Remote MCP, push it to a repository and deploy that with `repository`; give the Person the App's URL. A repository is optional: recommend one (GitHub by default) for the code's history.

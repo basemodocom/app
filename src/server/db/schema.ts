@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-// The Database's tables. Change a table here, then `bun run db:generate` writes
-// the migration into drizzle/; the server applies it when it next starts.
+// The Database's tables, as Drizzle queries them. The SQL that creates them is in
+// migrations/: change a table there in a new file, then here to match.
 
 export const notes = sqliteTable(
   "notes",

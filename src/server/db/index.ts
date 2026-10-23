@@ -1,10 +1,10 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate as applyMigrations } from "drizzle-orm/bun-sqlite/migrator";
 import * as schema from "./schema";
+
+export { migrate } from "./migrate";
 
 export type Db = ReturnType<typeof openDatabase>;
 
@@ -23,16 +23,4 @@ export function openDatabase(path: string) {
   sqlite.run("PRAGMA busy_timeout = 5000");
   sqlite.run("PRAGMA foreign_keys = ON");
   return drizzle({ client: sqlite, schema });
-}
-
-/**
- * Brings the Database up to date with the migrations in drizzle/. The web
- * Process does this when it starts (src/server/index.ts), so every Deploy
- * migrates once; Cron runs and workers only open the Database.
- */
-export function migrate(db: Db) {
-  applyMigrations(db, {
-    migrationsFolder: fileURLToPath(new URL("../../../drizzle", import.meta.url)),
-  });
-  return db;
 }
