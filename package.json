@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n server,client -c blue,magenta \"bun --hot src/server/index.ts\" \"vite\"",
-    "build": "vite build",
+    "build": "tsc --noEmit && bun test && vite build",
     "start": "bun src/server/index.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
