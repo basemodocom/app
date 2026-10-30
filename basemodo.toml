@@ -6,3 +6,12 @@
 # name = "tidy"
 # schedule = "0 3 * * *"
 # command = "bun src/jobs/tidy.ts"
+
+# Uncomment when the App is Public and needs to know who its visitors are.
+# A Public App lets everyone in as a Guest, with no identity headers, people
+# signed in to Basemodo included. With Recognize, someone already signed in is
+# asked once to continue as themselves, and arrives with their identity after;
+# everyone else is still a Guest. It does nothing at the other Visibilities.
+#
+# [web]
+# recognize = true
