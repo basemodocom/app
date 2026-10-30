@@ -10,7 +10,7 @@ This App runs on [Basemodo](https://basemodo.com): one Machine, one web Process,
 - `src/server/identity.ts` says who is visiting.
 - `src/client/` is the React app: `app.tsx` lists the pages as routes, `pages/` holds them, `components/ui/` holds the shadcn/ui components, `lib/api.ts` is the typed API client.
 - `src/jobs/` holds the scripts Cron runs start.
-- `basemodo.toml` is Basemodo's manifest, needed only for Cron runs and workers.
+- `basemodo.toml` is Basemodo's manifest, needed only for Cron runs, workers and Recognize.
 
 ## Changing the App
 
@@ -36,6 +36,8 @@ Write the UI in the Person's language.
 Basemodo signs visitors in before they reach the App and sends `X-Basemodo-Id`, `X-Basemodo-Email` and `X-Basemodo-Role` with every request, removing any a visitor sends, so the App trusts them as they are and leaves login to Basemodo. `identify` puts the visitor in `c.var.person`; keep records under `person.id`, which survives an email change. Verify `X-Basemodo-Jwt` with `BASEMODO_JWT_PUBLIC_KEY` only when passing the identity on to another service.
 
 That trust is load-bearing: the whole identity rests on Basemodo being the only way in and stripping these headers, so a request that reached the App's port directly could set `X-Basemodo-Id` to anyone. Basemodo is that single door in production. Where a leak would be grave, make it defense in depth: set the App's `BASEMODO_JWT_PUBLIC_KEY` (PEM) and `identify` verifies the signed `X-Basemodo-Jwt` — a short-lived EdDSA token the gate signs with the App's own key — and trusts the plain headers no longer, so a forged header alone is not enough. The template reads that env var in `index.ts` and passes it to `createApp`; unset, nothing changes.
+
+A Public App's visitors may be Guests: anyone who has not signed in reaches the App with no identity headers, so `c.var.person` is unset and every route they can reach must work without one. Someone already signed in to Basemodo is a Guest too until they press Sign in on the Toolbar, unless the App turns on Recognize (the commented `[web]` `recognize` line in `basemodo.toml`): then they are asked once to continue as themselves. Turn it on only when the App needs to know its visitors.
 
 Locally there is no Basemodo in front: set `DEV_USER_EMAIL` and the server treats every request as that person (only off Basemodo, outside production).
 
