@@ -74,6 +74,30 @@ describe("notes", () => {
     expect(await res.json()).toMatchObject({ error: "invalid", message: expect.any(String) });
   });
 
+  test("a visitor searches their own notes, ignoring case", async () => {
+    const app = fresh();
+    await post(app, ana, { text: "Buy milk" });
+    await post(app, ana, { text: "Call Ben" });
+    await post(app, ben, { text: "Buy bread" });
+    const res = await app.request("/api/notes?q=BUY", { headers: ana });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject([{ text: "Buy milk" }]);
+  });
+
+  test("a search reads % and _ as themselves, not as wildcards", async () => {
+    const app = fresh();
+    await post(app, ana, { text: "50% off" });
+    await post(app, ana, { text: "500 off" });
+    const res = await app.request(`/api/notes?q=${encodeURIComponent("0%")}`, { headers: ana });
+    expect(await res.json()).toMatchObject([{ text: "50% off" }]);
+  });
+
+  test("an oversized search is refused with a readable error", async () => {
+    const res = await fresh().request(`/api/notes?q=${"x".repeat(201)}`, { headers: ana });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "invalid", message: expect.any(String) });
+  });
+
   test("an oversized body is refused with a readable 413 before it is read", async () => {
     const body = JSON.stringify({ text: "x".repeat(1024 * 1024) });
     const res = await fresh().request("/api/notes", {

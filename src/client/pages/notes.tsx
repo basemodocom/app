@@ -1,6 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,9 +13,12 @@ import { api, type Note, ok } from "@/lib/api";
 
 export function NotesPage() {
   const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const q = useSettled(search.trim());
   const notes = useQuery({
-    queryKey: ["notes"],
-    queryFn: async () => (await ok(api.notes.$get())).json(),
+    queryKey: ["notes", q],
+    queryFn: async () => (await ok(api.notes.$get({ query: q ? { q } : {} }))).json(),
+    placeholderData: keepPreviousData,
   });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["notes"] });
 
@@ -52,12 +55,21 @@ export function NotesPage() {
             Add
           </Button>
         </form>
+        <div className="grid gap-2">
+          <Label htmlFor="search">Search</Label>
+          <Input
+            id="search"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
         {notes.isPending ? (
           <Skeleton className="h-10 w-full" />
         ) : notes.isError ? (
           <p className="text-destructive text-sm">{notes.error.message}</p>
         ) : notes.data.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No notes yet.</p>
+          <p className="text-muted-foreground text-sm">{q ? "No notes match." : "No notes yet."}</p>
         ) : (
           <ul className="divide-y">
             {notes.data.map((note: Note) => (
@@ -78,4 +90,14 @@ export function NotesPage() {
       </CardContent>
     </Card>
   );
+}
+
+/** The value once it stops changing for a moment, so typing asks the server once, not per key. */
+function useSettled(value: string, ms = 300) {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
 }
