@@ -41,6 +41,148 @@ A Public App's visitors may be Guests: anyone who has not signed in reaches the 
 
 Locally there is no Basemodo in front: set `DEV_USER_EMAIL` and the server treats every request as that person (only off Basemodo, outside production).
 
+## Records a team shares
+
+The notes example keeps each person's rows to themselves, and that stays the default. Share records among people only when the App is a team tool (a CRM, a tracker, an inventory), its Visibility is `private` or `workspace`, and the Person asked for everyone to see the same records. When it is unclear which they want, ask.
+
+A shared table:
+
+- has no `person_id` filter on its reads: every signed-in visitor reads every row.
+- keeps who made each row and who last changed it, `created_by` and `updated_by`, set from `c.var.person` on every insert and update, never from the request body. The snippet stores `person.email`, which the page can show; keep `person.id` beside it when the App must act on the author later (their rows, a notification), since an email can change.
+- keeps `signedIn` on the router, `zValidator` on every input and the rate limit keyed on `person.id`, as the notes router does.
+
+Who may do what comes from `person.role`: `owner`, `editor` or `member` for the people invited to the App by name, and no role for someone let in by its Visibility (`workspace`, `link` or `public`). `requireRole` (`src/server/identity.ts`) lets through only the roles it names and answers anyone else 403. Put it on every write, so someone with no role only reads, and on each action only some may take (delete, settings). Someone let in by `link` or `public` is no Member: a shared App opened to `link` shares its records with anyone who signs in through the link, so before such an App's Visibility widens, tell the Person, or put `requireRole` on the reads too.
+
+The table in `schema.ts`, with its migration as _Changing the App_ says:
+
+```ts
+export const sharedItems = sqliteTable("shared_items", {
+  id: integer().primaryKey({ autoIncrement: true }),
+  text: text().notNull(),
+  createdBy: text("created_by").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().default(sql`(unixepoch())`),
+});
+```
+
+The router, mounted in `createApi` with `.route("/shared-items", sharedItemsRoutes(db))`:
+
+```ts
+import { zValidator } from "@hono/zod-validator";
+import { desc, eq } from "drizzle-orm";
+import { Hono } from "hono";
+import { z } from "zod";
+import type { Db } from "../db";
+import { sharedItems } from "../db/schema";
+import { type Identity, requireRole, signedIn } from "../identity";
+import { invalid } from "../invalid";
+import { rateLimit } from "../rate-limit";
+
+const itemText = z.object({ text: z.string().trim().min(1, "Write something first").max(2000) });
+const itemId = z.object({ id: z.coerce.number().int().positive() });
+
+// Members write; someone with no role (let in by link, Workspace or Public) only reads.
+const members = requireRole("owner", "editor", "member");
+
+/** The team's items: every Member sees and changes them all; only the owner deletes. */
+export function sharedItemsRoutes(db: Db) {
+  return new Hono<Identity>()
+    .use(signedIn)
+    .use(rateLimit<Identity>({ limit: 60, windowMs: 60_000, key: (c) => c.var.person.id }))
+    .get("/", (c) => c.json(db.select().from(sharedItems).orderBy(desc(sharedItems.id)).all(), 200))
+    .post("/", members, zValidator("json", itemText, invalid), (c) => {
+      const by = c.var.person.email;
+      const { text } = c.req.valid("json");
+      const item = db
+        .insert(sharedItems)
+        .values({ text, createdBy: by, updatedBy: by })
+        .returning()
+        .get();
+      return c.json(item, 201);
+    })
+    .patch(
+      "/:id",
+      members,
+      zValidator("param", itemId, invalid),
+      zValidator("json", itemText, invalid),
+      (c) => {
+        const item = db
+          .update(sharedItems)
+          .set({ ...c.req.valid("json"), updatedBy: c.var.person.email, updatedAt: new Date() })
+          .where(eq(sharedItems.id, c.req.valid("param").id))
+          .returning()
+          .get();
+        if (!item) return c.json({ error: "not_found" }, 404);
+        return c.json(item, 200);
+      },
+    )
+    .delete("/:id", requireRole("owner"), zValidator("param", itemId, invalid), (c) => {
+      const gone = db
+        .delete(sharedItems)
+        .where(eq(sharedItems.id, c.req.valid("param").id))
+        .returning()
+        .get();
+      if (!gone) return c.json({ error: "not_found" }, 404);
+      return c.body(null, 204);
+    });
+}
+```
+
+Its test sends the headers the gate sends, one person per role the rules tell apart, and proves each rule: two people see each other's rows, a Member cannot delete, someone with no role cannot write. `fresh()` is the in-memory App of `notes.test.ts`; the list is at `/api/shared-items`, with no trailing slash.
+
+```ts
+const ana = {
+  "x-basemodo-id": "p_ana",
+  "x-basemodo-email": "ana@example.com",
+  "x-basemodo-role": "owner",
+};
+const ben = {
+  "x-basemodo-id": "p_ben",
+  "x-basemodo-email": "ben@example.com",
+  "x-basemodo-role": "member",
+};
+const eve = { "x-basemodo-id": "p_eve", "x-basemodo-email": "eve@example.com" }; // let in by link: no role
+
+function send(
+  app: ReturnType<typeof fresh>,
+  who: Record<string, string>,
+  method: string,
+  path: string,
+  body?: unknown,
+) {
+  return app.request(`/api/shared-items${path}`, {
+    method,
+    headers: { ...who, "content-type": "application/json", "sec-fetch-site": "same-origin" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+test("Members see and change each other's items, and each change names who made it", async () => {
+  const app = fresh();
+  const { id } = await (await send(app, ana, "POST", "", { text: "Call Acme" })).json();
+  const changed = await send(app, ben, "PATCH", `/${id}`, { text: "Called Acme" });
+  expect(await changed.json()).toMatchObject({
+    createdBy: "ana@example.com",
+    updatedBy: "ben@example.com",
+  });
+  expect(await (await send(app, ana, "GET", "")).json()).toMatchObject([{ text: "Called Acme" }]);
+});
+
+test("a Member cannot delete; the owner can", async () => {
+  const app = fresh();
+  const { id } = await (await send(app, ben, "POST", "", { text: "Keep" })).json();
+  expect((await send(app, ben, "DELETE", `/${id}`)).status).toBe(403);
+  expect((await send(app, ana, "DELETE", `/${id}`)).status).toBe(204);
+});
+
+test("someone with no role reads but cannot write", async () => {
+  const app = fresh();
+  await send(app, ana, "POST", "", { text: "Seen by all" });
+  expect((await send(app, eve, "GET", "")).status).toBe(200);
+  expect((await send(app, eve, "POST", "", { text: "Mine" })).status).toBe(403);
+});
+```
+
 ## Hardening
 
 `createApp` wraps every response in three Hono middlewares, so routes and client both get them:
@@ -54,7 +196,7 @@ Two more, per feature:
 - **Signed identity** — set `BASEMODO_JWT_PUBLIC_KEY` and `identify` trusts only the signed `X-Basemodo-Jwt` (see _Who is visiting_). Do this for any App holding money, PII or one tenant's data another must not read.
 - **Rate limit** — `rateLimit` (`src/server/rate-limit.ts`) refuses a key more than `limit` calls a window with a 429. Once a Person is known, key on `person.id`, as the notes router does (`PER_MINUTE` calls a minute): people behind one address (an office, a phone carrier) then keep counts of their own. Before a Person is known (a Public App's waitlist or contact form), key on `byAddress`, which reads `X-Forwarded-For`: Basemodo sets it to the one address the request came from, after removing any the visitor sent. For a Caller (another of the Owner's Apps calling this one), `X-Forwarded-For` holds the calling App's internal address, so its calls count together; tell Callers apart by `X-Basemodo-Caller`, since that address may change with each Deploy. Tune the numbers to the real feature. The count lives in memory: exact on Basemodo's single Process while the App runs, reset when it sleeps; count in the Database for a limit that must outlast a sleep.
 
-Validate every input at the edge with `zValidator` as the routes do, and scope each query by `person.id` so one visitor never reads or writes another's rows.
+Validate every input at the edge with `zValidator` as the routes do, and scope each query by `person.id` so one visitor never reads or writes another's rows. A team App whose records are shared scopes by role instead, as _Records a team shares_ says.
 
 ## What the Machine allows
 
