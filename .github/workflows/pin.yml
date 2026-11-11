@@ -1,0 +1,51 @@
+name: Template pin
+
+# Basemodo serves this Template at a commit its own code pins, never at the head of
+# main (ADR-0095 and ADR-0116 of danielbolivar/basemodo), so a push here changes no
+# new App by itself. On every push to main, this opens the pull request into
+# Basemodo's dev that pins the new head, or updates the one open: Basemodo's
+# scripts/bump-template --pull-request app, run from its dev, which a person merges.
+#
+# It reads the secret BASEMODO_PIN_TOKEN: a fine-grained token of danielbolivar/basemodo
+# alone, with Contents and Pull requests read and write (Basemodo's
+# docs/development.md, "The Templates' pins"). Without it the run fails at its
+# checkout, and nothing else happens.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# This run's own token is given nothing: the script fetches this repository as anyone
+# does. Each action is pinned to a commit (Dependabot moves the pin and its version
+# comment).
+permissions: {}
+
+# One run at a time: a newer push cancels the run before it, whose pin it replaces.
+concurrency:
+  group: template-pin
+  cancel-in-progress: true
+
+jobs:
+  pin:
+    # Never in a fork, which has no such secret and no Template to pin.
+    if: github.repository == 'basemodocom/app'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Basemodo's scripts alone; checkout keeps the token out of .git/config, and the
+      # script hands it to git through gh (GH_TOKEN), never in a command's arguments.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: danielbolivar/basemodo
+          ref: dev
+          token: ${{ secrets.BASEMODO_PIN_TOKEN }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - run: scripts/bump-template --pull-request app
+        env:
+          GH_TOKEN: ${{ secrets.BASEMODO_PIN_TOKEN }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
