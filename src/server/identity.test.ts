@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { Hono } from "hono";
 import { sign } from "hono/jwt";
 import { createApp } from "./app";
 import { migrate, openDatabase } from "./db";
+import { type Identity, identify, requireRole, signedIn } from "./identity";
 
 // An Ed25519 key pair, the kind Basemodo signs a visitor's JWT with. The public
 // half is what an App gets as BASEMODO_JWT_PUBLIC_KEY; the private half stands in
@@ -99,5 +101,40 @@ describe("identity verified by JWT", () => {
       headers: { "x-basemodo-id": ANA, "x-basemodo-email": "ana@example.com" },
     });
     expect(res.status).toBe(200);
+  });
+});
+
+// A tiny app with one route only owners and editors may reach.
+const guarded = () =>
+  new Hono<Identity>()
+    .use(identify())
+    .use(signedIn)
+    .get("/", requireRole("owner", "editor"), (c) => c.text("ok"));
+const as = (role?: string) => ({
+  headers: {
+    "x-basemodo-id": "p_ana",
+    "x-basemodo-email": "ana@example.com",
+    ...(role ? { "x-basemodo-role": role } : {}),
+  },
+});
+
+describe("requireRole", () => {
+  test("lets through a person whose role it names", async () => {
+    expect((await guarded().request("/", as("owner"))).status).toBe(200);
+    expect((await guarded().request("/", as("editor"))).status).toBe(200);
+  });
+
+  test("refuses a person whose role it does not name", async () => {
+    const res = await guarded().request("/", as("member"));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "forbidden" });
+  });
+
+  test("refuses a person with no role (let in by link, Workspace or Public)", async () => {
+    expect((await guarded().request("/", as())).status).toBe(403);
+  });
+
+  test("refuses a role Basemodo does not define", async () => {
+    expect((await guarded().request("/", as("admin"))).status).toBe(403);
   });
 });

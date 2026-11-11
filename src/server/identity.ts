@@ -70,3 +70,18 @@ export const signedIn: MiddlewareHandler<Identity> = async (c, next) => {
   if (!c.get("person")) return c.json({ error: "not_signed_in" }, 401);
   await next();
 };
+
+/**
+ * Lets through only a person whose role is one of `roles`; anyone else gets a 403.
+ * Someone let in by link, by Workspace or because the App is public has no role,
+ * so it turns them away whatever `roles` names. Mount it after `signedIn`.
+ *
+ *   .delete("/:id", requireRole("owner"), (c) => ...)
+ */
+export function requireRole(...roles: NonNullable<Person["role"]>[]): MiddlewareHandler<Identity> {
+  return async (c, next) => {
+    const role = c.get("person")?.role;
+    if (!role || !roles.includes(role)) return c.json({ error: "forbidden" }, 403);
+    await next();
+  };
+}
