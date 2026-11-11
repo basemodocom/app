@@ -27,7 +27,9 @@ const maxBody = 64 * 1024;
 
 /** The API: every route under /api. Add a route file and mount it here. */
 function createApi(db: Db) {
-  return new Hono().get("/health", (c) => c.json({ ok: true })).route("/notes", notesRoutes(db));
+  return new Hono()
+    .get("/health", (c) => c.json({ ok: true }, 200))
+    .route("/notes", notesRoutes(db));
 }
 
 /** What the client imports to call the API with types (src/client/lib/api.ts). */
